@@ -4,8 +4,8 @@ import Notes from './Notes';
 import ResearchPapers from './ResearchPapers';
 import QnA from './QnA';
 
-// Replace this placeholder with your actual cloud API endpoint URL
-const CLOUD_API_URL = "https://your-cloud-api-url.com"; 
+// Use the environment variable for the API URL
+const CLOUD_API_URL = process.env.REACT_APP_API_URL; 
 
 const StudentDashboard = () => {
     const [activeTab, setActiveTab] = useState('books');
