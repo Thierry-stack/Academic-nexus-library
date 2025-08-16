@@ -15,7 +15,7 @@ styles.textContent = `
 document.head.appendChild(styles);
 
 // Set the API URL dynamically
-const API_URL = process.env.REACT_APP_API_URL;
+const API_URL = "https://academic-nexus-library-backend.onrender.com";
 
 function LibrarianDashboard() {
     const { token, logout } = useContext(AuthContext);
