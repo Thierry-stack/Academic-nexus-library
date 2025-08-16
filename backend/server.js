@@ -4,7 +4,7 @@ const mysql = require('mysql2/promise');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const fs = require('fs'); // ✅ New: Required to read the SSL certificate file
+const fs = require('fs');
 
 // Load environment variables from .env file
 dotenv.config();
@@ -14,8 +14,8 @@ const app = express();
 // Set up dynamic CORS for production and development
 const isProduction = process.env.NODE_ENV === 'production';
 const origin = isProduction 
-  ? 'https://<your-frontend-production-url>' 
-  : 'http://localhost:3000'; // Replace with your frontend URL
+  ? 'https://academic-nexus-library-frontend.onrender.com'
+  : 'http://localhost:3000';
 
 const corsOptions = {
     origin: origin,
@@ -56,8 +56,8 @@ async function initializeDatabases() {
             database: process.env.DB_NAME,
             port: process.env.DB_PORT,
             ssl: {
-                ca: fs.readFileSync('./certs/ca.pem'), // ✅ New: Use the downloaded certificate file
-                rejectUnauthorized: true 
+                ca: fs.readFileSync('./certs/ca.pem'),
+                rejectUnauthorized: true
             },
             waitForConnections: true,
             connectionLimit: 10,
@@ -156,11 +156,11 @@ async function startServer() {
             console.log(`\n🚀 Server running on port ${PORT}`);
             console.log(`🌐 Access it at: http://localhost:${PORT}`);
             console.log('\nAvailable endpoints:');
-            console.log(`- GET  /              - Server status`);
-            console.log(`- GET  /health         - Health check`);
-            console.log(`- GET  /api/books      - Public book search`);
+            console.log(`- GET   /                - Server status`);
+            console.log(`- GET   /health          - Health check`);
+            console.log(`- GET   /api/books       - Public book search`);
             console.log(`- POST /api/search-stats/track-search - Track a search`);
-            console.log(`- GET  /api/search-stats/most-searched - Get search statistics\n`);
+            console.log(`- GET   /api/search-stats/most-searched - Get search statistics\n`);
         });
 
     } catch (error) {
