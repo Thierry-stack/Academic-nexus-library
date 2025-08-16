@@ -4,21 +4,59 @@
     const router = express.Router();
     const bcrypt = require('bcryptjs');
     const jwt = require('jsonwebtoken');
-    const { db } = require('../server'); // Import the database connection container
-    const { auth, authorize } = require('../middleware/auth'); // Import auth middleware
+    const { auth, authorize } = require('../middleware/auth');
+    const path = require('path');
+    const fs = require('fs');
+
+    // Ensure uploads directory exists
+    const uploadDir = path.join(__dirname, '../uploads');
+    if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+    }
 
     // Multer storage configuration
     const storage = multer.diskStorage({
         destination: function (req, file, cb) {
-            cb(null, 'uploads/'); // Files will be stored in the 'uploads/' directory (relative to backend root)
+            cb(null, uploadDir);
         },
         filename: function (req, file, cb) {
-            // Create a unique filename: fieldname-timestamp.ext
-            cb(null, file.fieldname + '-' + Date.now() + '.' + file.originalname.split('.').pop());
+            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+            cb(null, 'book-cover-' + uniqueSuffix + path.extname(file.originalname));
         }
     });
 
-    const upload = multer({ storage: storage });
+    const upload = multer({ 
+        storage: storage,
+        limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+        fileFilter: (req, file, cb) => {
+            const filetypes = /jpeg|jpg|png|gif/;
+            const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+            const mimetype = filetypes.test(file.mimetype);
+            
+            if (mimetype && extname) {
+                return cb(null, true);
+            } else {
+                cb(new Error('Only image files are allowed (jpeg, jpg, png, gif)'));
+            }
+        }
+    });
+
+    // @route   GET /api/librarian/books
+    // @desc    Get all books (Protected - Librarian only)
+    // @access  Private (Librarian)
+    router.get('/books', auth, authorize(['librarian']), async (req, res) => {
+        try {
+            const [books] = await req.db.mysqlPool.query('SELECT * FROM books');
+            res.json(books);
+        } catch (err) {
+            console.error('Error fetching books:', err);
+            res.status(500).json({ 
+                error: 'Server Error',
+                message: 'Failed to fetch books',
+                details: process.env.NODE_ENV === 'development' ? err.message : undefined
+            });
+        }
+    });
 
     // @route   POST /api/librarian/login
     // @desc    Authenticate librarian & get token
@@ -26,11 +64,18 @@
     router.post('/login', async (req, res) => {
         const { username, password } = req.body;
 
+        if (!username || !password) {
+            return res.status(400).json({ message: 'Username and password are required' });
+        }
+
         try {
             // Check if librarian exists
-            const [rows] = await db.mysqlPool.execute('SELECT id, username, password FROM librarians WHERE username = ?', [username]);
+            const [rows] = await req.db.mysqlPool.execute(
+                'SELECT id, username, password FROM librarians WHERE username = ?', 
+                [username]
+            );
+            
             const librarian = rows[0];
-
             if (!librarian) {
                 return res.status(400).json({ message: 'Invalid Credentials' });
             }
@@ -55,14 +100,28 @@
                 process.env.JWT_SECRET,
                 { expiresIn: '1h' },
                 (err, token) => {
-                    if (err) throw err;
-                    res.json({ token, role: 'librarian' });
+                    if (err) {
+                        console.error('JWT Sign Error:', err);
+                        return res.status(500).json({ message: 'Error generating token' });
+                    }
+                    res.json({ 
+                        token, 
+                        role: 'librarian',
+                        user: {
+                            id: librarian.id,
+                            username: librarian.username
+                        }
+                    });
                 }
             );
 
         } catch (err) {
-            console.error(err.message);
-            res.status(500).send('Server Error');
+            console.error('Login Error:', err);
+            res.status(500).json({ 
+                error: 'Server Error',
+                message: 'Login failed',
+                details: process.env.NODE_ENV === 'development' ? err.message : undefined
+            });
         }
     });
 
@@ -70,39 +129,108 @@
     // @desc    Add a new book (Protected - Librarian only)
     // @access  Private (Librarian)
     router.post('/books', auth, authorize(['librarian']), upload.single('coverImage'), async (req, res) => {
-        const { title, author, isbn, published_date, description, shelf_number, row_position } = req.body;
-        const cover_image_url = req.file ? `/uploads/${req.file.filename}` : null; // Path to the uploaded file
+        console.log('Received book data:', req.body);
+        console.log('Uploaded file:', req.file);
+        
+        const { 
+            title, 
+            author, 
+            isbn, 
+            published_date, 
+            description, 
+            shelf_number, 
+            row_position 
+        } = req.body;
+
+        // Basic validation
+        if (!title || !author || !isbn) {
+            return res.status(400).json({ 
+                error: 'Validation Error',
+                message: 'Title, author, and ISBN are required fields' 
+            });
+        }
 
         try {
+            // Check if book with same ISBN already exists
+            const [existingBooks] = await req.db.mysqlPool.execute(
+                'SELECT id FROM books WHERE isbn = ?', 
+                [isbn]
+            );
+            
+            if (existingBooks.length > 0) {
+                return res.status(409).json({ 
+                    error: 'Duplicate Entry',
+                    message: 'A book with this ISBN already exists' 
+                });
+            }
+
+            // Prepare book data
+            const cover_image_url = req.file ? `/uploads/${req.file.filename}` : null;
+            
             const query = `
                 INSERT INTO books 
                 (title, author, isbn, published_date, description, cover_image_url, shelf_number, row_position) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `;
+            
             const values = [
                 title, 
                 author, 
                 isbn, 
-                published_date, 
-                description, 
+                published_date || null, 
+                description || null, 
                 cover_image_url, 
-                shelf_number || null,     
-                row_position || null      
+                shelf_number || null, 
+                row_position || null
             ];
 
-            const [result] = await db.mysqlPool.execute(query, values); 
+            console.log('Executing query:', query);
+            console.log('With values:', values);
+
+            const [result] = await req.db.mysqlPool.execute(query, values);
             
-            res.status(201).json({ message: 'Book added successfully', bookId: result.insertId });
+            // Fetch the newly created book to return complete data
+            const [newBook] = await req.db.mysqlPool.execute(
+                'SELECT * FROM books WHERE id = ?', 
+                [result.insertId]
+            );
+
+            res.status(201).json({ 
+                success: true,
+                message: 'Book added successfully', 
+                book: newBook[0]
+            });
+
         } catch (err) {
-            console.error(err.message);
-            if (err.code === 'ER_DUP_ENTRY') {
-                return res.status(409).json({ message: 'A book with this ISBN already exists.' });
+            console.error('Error adding book:', {
+                message: err.message,
+                code: err.code,
+                sql: err.sql,
+                sqlMessage: err.sqlMessage,
+                stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+            });
+            
+            // If there was a file uploaded but an error occurred, delete it
+            if (req.file && req.file.path) {
+                try {
+                    await fs.promises.unlink(req.file.path);
+                } catch (unlinkErr) {
+                    console.error('Error deleting uploaded file:', unlinkErr);
+                }
             }
-            res.status(500).send('Server Error');
+            
+            res.status(500).json({ 
+                error: 'Database Error',
+                message: 'Failed to add book',
+                details: process.env.NODE_ENV === 'development' ? {
+                    message: err.message,
+                    code: err.code,
+                    sql: err.sql,
+                    sqlMessage: err.sqlMessage
+                } : undefined
+            });
         }
     });
-
-    // @route   PUT /api/librarian/books/:id
     // @desc    Update book details (Protected - Librarian only)
     // @access  Private (Librarian)
     router.put('/books/:id', auth, authorize(['librarian']), upload.single('coverImage'), async (req, res) => {
@@ -115,7 +243,7 @@
             if (req.file) {
                 finalCoverImageUrl = `/uploads/${req.file.filename}`;
             } else {
-                const [bookRows] = await db.mysqlPool.execute('SELECT cover_image_url FROM books WHERE id = ?', [id]);
+                const [bookRows] = await req.db.mysqlPool.execute('SELECT cover_image_url FROM books WHERE id = ?', [id]);
                 if (bookRows.length > 0) {
                     finalCoverImageUrl = bookRows[0].cover_image_url;
                 }
@@ -151,7 +279,7 @@
                 id
             ];
 
-            const [result] = await db.mysqlPool.execute(query, values); 
+            const [result] = await req.db.mysqlPool.execute(query, values); 
             
             if (result.affectedRows === 0) {
                 return res.status(404).json({ message: 'Book not found' });
@@ -172,7 +300,7 @@
     router.delete('/books/:id', auth, authorize(['librarian']), async (req, res) => {
         const { id } = req.params;
         try {
-            const [result] = await db.mysqlPool.execute('DELETE FROM books WHERE id = ?', [id]); 
+            const [result] = await req.db.mysqlPool.execute('DELETE FROM books WHERE id = ?', [id]); 
             if (result.affectedRows === 0) {
                 return res.status(404).json({ message: 'Book not found' });
             }

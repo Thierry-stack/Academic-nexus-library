@@ -1,68 +1,49 @@
 // src/context/AuthContext.js
-    import React, { createContext, useState, useEffect } from 'react';
-    import { useNavigate } from 'react-router-dom'; // Import useNavigate
 
-    // Create the AuthContext
-    export const AuthContext = createContext();
+import React, { createContext, useState, useEffect } from 'react';
 
-    // Create the AuthProvider component
-    export const AuthProvider = ({ children }) => {
-        // State to hold the authentication token and user role
-        const [token, setToken] = useState(localStorage.getItem('token'));
-        const [role, setRole] = useState(localStorage.getItem('role'));
-        const navigate = useNavigate(); // Initialize useNavigate hook
+export const AuthContext = createContext();
 
-        // Effect to update localStorage when token or role changes
-        useEffect(() => {
-            if (token) {
-                localStorage.setItem('token', token);
-            } else {
-                localStorage.removeItem('token');
-            }
-            if (role) {
-                localStorage.setItem('role', role);
-            } else {
-                localStorage.removeItem('role');
-            }
-        }, [token, role]);
+export const AuthProvider = ({ children }) => {
+    const [token, setToken] = useState(localStorage.getItem('token'));
+    const [role, setRole] = useState(localStorage.getItem('role'));
 
-        // Login function
-        const login = (newToken, newRole) => {
-            setToken(newToken);
-            setRole(newRole);
-            // Navigate based on role after login
-            if (newRole === 'librarian') {
-                navigate('/librarian');
-            } else if (newRole === 'student') {
-                navigate('/student');
-            } else {
-                navigate('/'); // Default to home if role is unknown
-            }
-        };
-
-        // Logout function
-        const logout = () => {
-            setToken(null);
-            setRole(null);
-            // Clear local storage immediately
+    useEffect(() => {
+        if (token) {
+            localStorage.setItem('token', token);
+        } else {
             localStorage.removeItem('token');
+        }
+        if (role) {
+            localStorage.setItem('role', role);
+        } else {
             localStorage.removeItem('role');
-            navigate('/librarian/login'); // Redirect to login page after logout
-        };
+        }
+    }, [token, role]);
 
-        // The value provided to consumers of this context
-        const authContextValue = {
-            token,
-            role,
-            login,
-            logout,
-            isAuthenticated: !!token // Convenience boolean
-        };
-
-        return (
-            <AuthContext.Provider value={authContextValue}>
-                {children}
-            </AuthContext.Provider>
-        );
+    const login = (newToken, newRole) => {
+        setToken(newToken);
+        setRole(newRole);
     };
-    
+
+    const logout = () => {
+        setToken(null);
+        setRole(null);
+        localStorage.removeItem('token');
+        localStorage.removeItem('role');
+    };
+
+    const authContextValue = {
+        token,
+        role,
+        login,
+        logout,
+        isAuthenticated: !!token
+    };
+
+    return (
+        <AuthContext.Provider value={authContextValue}>
+            {children}
+        </AuthContext.Provider>
+    );
+};

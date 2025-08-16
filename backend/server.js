@@ -1,78 +1,172 @@
 // backend/server.js
-    const express = require('express');
-    const mysql = require('mysql2/promise'); // Using promise-based MySQL2
-    const mongoose = require('mongoose');
-    const dotenv = require('dotenv');
-    const cors = require('cors');
+const express = require('express');
+const mysql = require('mysql2/promise');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const cors = require('cors');
+const fs = require('fs'); // ✅ New: Required to read the SSL certificate file
 
-    // Load environment variables from .env file
-    dotenv.config();
+// Load environment variables from .env file
+dotenv.config();
 
-    const app = express();
+const app = express();
 
-    // Middleware
-    app.use(cors()); // Enable CORS for all routes
-    app.use(express.json()); // For parsing application/json
+// Set up dynamic CORS for production and development
+const isProduction = process.env.NODE_ENV === 'production';
+const origin = isProduction 
+  ? 'https://<your-frontend-production-url>' 
+  : 'http://localhost:3000'; // Replace with your frontend URL
 
-    // Serve static files from the 'uploads' directory
-    app.use('/uploads', express.static('uploads')); // This will be used for book covers
+const corsOptions = {
+    origin: origin,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'X-Access-Token'],
+    exposedHeaders: ['Authorization'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+};
 
-    // --- Database Connections ---
-    let mysqlPool; // Declared globally
-    let mongoDbConnection; // Declared globally
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+app.use(express.json());
+app.use('/uploads', express.static('uploads'));
 
-    async function connectDatabasesAndStartServer() {
-        try {
-            // MySQL Connection
-            mysqlPool = await mysql.createPool({
-                host: process.env.DB_HOST,
-                user: process.env.DB_USER,
-                password: process.env.DB_PASSWORD,
-                database: process.env.DB_NAME,
-                waitForConnections: true,
-                connectionLimit: 10,
-                queueLimit: 0
-            });
-            console.log('Connected to MySQL database!');
+let mysqlPool;
+let mongoDbConnection;
 
-            // MongoDB Connection
-            await mongoose.connect(process.env.MONGO_URI); // Removed deprecated options
-            mongoDbConnection = mongoose.connection;
-            console.log('Connected to MongoDB database!');
+// Simple test routes
+app.get('/', (req, res) => {
+    res.send('Horizon Library Backend is running!');
+});
 
-            // --- IMPORTANT: Now that connections are established, make them available and load routes ---
-            // Make database connections available to other modules
-            module.exports.db = {
-                mysqlPool: mysqlPool,
-                mongoDbConnection: mongoDbConnection
-            };
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
-            // --- Import Routes ---
-            // These require statements will now execute AFTER db connections are ready
-            const librarianRoutes = require('./routes/librarian');
-            const studentRoutes = require('./routes/student');
-            const publicRoutes = require('./routes/public');
+async function initializeDatabases() {
+    try {
+        console.log('Initializing database connections...');
 
-            // --- Use Routes ---
-            app.use('/api/librarian', librarianRoutes);
-            app.use('/api/student', studentRoutes);
-            app.use('/api/books', publicRoutes);
+        console.log('Connecting to MySQL...');
+        mysqlPool = await mysql.createPool({
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+            port: process.env.DB_PORT,
+            ssl: {
+                ca: fs.readFileSync('./certs/ca.pem'), // ✅ New: Use the downloaded certificate file
+                rejectUnauthorized: true 
+            },
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0,
+            connectTimeout: 10000
+        });
 
-            // Basic route for testing server
-            app.get('/', (req, res) => {
-                res.send('Horizon Library Backend is running!');
-            });
+        const connection = await mysqlPool.getConnection();
+        await connection.ping();
+        connection.release();
+        console.log('✅ Successfully connected to MySQL database!');
 
-            // Start the server
-            const PORT = process.env.PORT || 5000;
-            app.listen(PORT, () => console.log(`Server running on port ${PORT}\nAccess it at: http://localhost:${PORT}`));
+        if (process.env.MONGO_URI) {
+            console.log('Connecting to MongoDB...');
+            try {
+                await mongoose.connect(process.env.MONGO_URI, {
+                    useNewUrlParser: true,
+                    useUnifiedTopology: true,
+                    serverSelectionTimeoutMS: 5000
+                });
 
-        } catch (err) {
-            console.error('Database connection or server startup error:', err);
-            process.exit(1); // Exit process if database connection or server startup fails
+                mongoDbConnection = mongoose.connection;
+                if (mongoDbConnection.readyState === 1) {
+                    console.log('✅ Successfully connected to MongoDB database!');
+                } else {
+                    console.warn('⚠️ Unexpected MongoDB readyState:', mongoDbConnection.readyState);
+                }
+            } catch (mongoErr) {
+                console.warn('⚠️ MongoDB connection skipped or failed:', mongoErr.message);
+                mongoDbConnection = null;
+            }
+        } else {
+            console.log('ℹ️ MONGO_URI not set. Skipping MongoDB connection.');
+            mongoDbConnection = null;
         }
-    }
 
-    // Call the main function to connect databases and start the server
-    connectDatabasesAndStartServer();
-    
+        return true;
+
+    } catch (error) {
+        console.error('❌ Database initialization failed:', error);
+        throw error;
+    }
+}
+
+function initializeRoutes() {
+    try {
+        console.log('Initializing routes...');
+
+        const bookRequestsRoutes = require('./routes/bookRequests');
+        const librarianRoutes = require('./routes/librarian');
+        const studentRoutes = require('./routes/student');
+        const publicRoutes = require('./routes/public');
+        const searchStatsRoutes = require('./routes/searchStats');
+
+        app.use('/api/book-requests', (req, res, next) => {
+            req.db = { mysqlPool, mongoDbConnection };
+            next();
+        }, bookRequestsRoutes);
+
+        app.use('/api/librarian', (req, res, next) => {
+            req.db = { mysqlPool, mongoDbConnection };
+            next();
+        }, librarianRoutes);
+
+        app.use('/api/student', (req, res, next) => {
+            req.db = { mysqlPool, mongoDbConnection };
+            next();
+        }, studentRoutes);
+
+        app.use('/api/books', (req, res, next) => {
+            req.db = { mysqlPool, mongoDbConnection };
+            next();
+        }, publicRoutes);
+
+        app.use('/api/search-stats', (req, res, next) => {
+            req.db = { mysqlPool, mongoDbConnection };
+            next();
+        }, searchStatsRoutes);
+
+        console.log('✅ Routes initialized successfully');
+        return true;
+
+    } catch (error) {
+        console.error('❌ Route initialization failed:', error);
+        throw error;
+    }
+}
+
+async function startServer() {
+    try {
+        await initializeDatabases();
+        initializeRoutes();
+
+        const PORT = process.env.PORT || 5000;
+        app.listen(PORT, () => {
+            console.log(`\n🚀 Server running on port ${PORT}`);
+            console.log(`🌐 Access it at: http://localhost:${PORT}`);
+            console.log('\nAvailable endpoints:');
+            console.log(`- GET  /              - Server status`);
+            console.log(`- GET  /health         - Health check`);
+            console.log(`- GET  /api/books      - Public book search`);
+            console.log(`- POST /api/search-stats/track-search - Track a search`);
+            console.log(`- GET  /api/search-stats/most-searched - Get search statistics\n`);
+        });
+
+    } catch (error) {
+        console.error('\n❌ Failed to start server:', error);
+        process.exit(1);
+    }
+}
+
+startServer();

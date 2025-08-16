@@ -1,117 +1,401 @@
-// src/components/StudentDashboard.js
-    import React, { useEffect, useState } from 'react';
-    import axios from 'axios';
+import React, { useState, useEffect } from 'react';
+import './StudentDashboard.css'; // Assuming this is your CSS file
+import Notes from './Notes';
+import ResearchPapers from './ResearchPapers';
+import QnA from './QnA';
 
-    function StudentDashboard() {
-        const [books, setBooks] = useState([]);
-        const [filteredBooks, setFilteredBooks] = useState([]); // For search results
-        const [loading, setLoading] = useState(true);
-        const [error, setError] = useState(null);
-        const [searchTerm, setSearchTerm] = useState('');
+// Replace this placeholder with your actual cloud API endpoint URL
+const CLOUD_API_URL = "https://your-cloud-api-url.com"; 
 
-        // Function to fetch all books
+const StudentDashboard = () => {
+    const [activeTab, setActiveTab] = useState('books');
+    const [books, setBooks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filteredBooks, setFilteredBooks] = useState([]);
+    const [expandedBookId, setExpandedBookId] = useState(null);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [suggestions, setSuggestions] = useState([]);
+    const [activeSuggestion, setActiveSuggestion] = useState(0);
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [showRequestModal, setShowRequestModal] = useState(false);
+    const [currentSearchTerm, setCurrentSearchTerm] = useState('');
+    const [requestStatus, setRequestStatus] = useState({ show: false, message: '', isError: false });
+
+    // Fetch all books on initial load
+    useEffect(() => {
         const fetchBooks = async () => {
             try {
-                // This fetches from /api/books (public)
-                const response = await axios.get('http://localhost:5000/api/books');
-                setBooks(response.data);
-                setFilteredBooks(response.data); // Initially, all books are filtered
+                const response = await fetch(`${CLOUD_API_URL}/api/books`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch books');
+                }
+                const data = await response.json();
+                setBooks(data);
+                setFilteredBooks(data); // Initially show all books
             } catch (err) {
                 setError('Failed to load books. Please try again later.');
-                console.error('Error fetching books:', err.response ? err.response.data : err.message);
+                console.error('Fetch error:', err);
             } finally {
                 setLoading(false);
             }
         };
 
-        // Fetch books on component mount
-        useEffect(() => {
-            fetchBooks();
-        }, []);
+        fetchBooks();
+    }, []);
 
-        // Handle search input change
-        useEffect(() => {
-            const lowercasedSearchTerm = searchTerm.toLowerCase();
-            const results = books.filter(book =>
-                book.title.toLowerCase().includes(lowercasedSearchTerm) ||
-                book.author.toLowerCase().includes(lowercasedSearchTerm) ||
-                book.isbn.toLowerCase().includes(lowercasedSearchTerm) || // Allow searching by ISBN
-                (book.description && book.description.toLowerCase().includes(lowercasedSearchTerm)) // Allow searching by description
-            );
-            setFilteredBooks(results);
-        }, [searchTerm, books]); // Re-filter when search term or original books list changes
+    // Handle search input changes with a debounce for suggestions
+    useEffect(() => {
+        const fetchSuggestions = async () => {
+            if (searchTerm.length < 2) {
+                setSuggestions([]);
+                setShowSuggestions(false);
+                return;
+            }
 
-        if (loading) return <div style={{ textAlign: 'center', padding: '50px', fontSize: '1.2em', color: 'var(--light-text-color)' }}>Loading books...</div>;
-        if (error) return <div className="error-message" style={{ margin: '20px auto', maxWidth: '600px' }}>Error: {error}</div>;
+            try {
+                const response = await fetch(`${CLOUD_API_URL}/api/books/suggestions?q=${encodeURIComponent(searchTerm)}`);
+                const data = await response.json();
+                setSuggestions(data.map(item => ({ value: item.title }))); // Adjust based on your API response
+                setShowSuggestions(true);
+            } catch (err) {
+                console.error('Suggestions fetch error:', err);
+                setSuggestions([]);
+            }
+        };
 
-        return (
-            <div style={{ padding: '20px', maxWidth: '1200px', margin: '20px auto', backgroundColor: 'var(--background-color)', borderRadius: '8px', boxShadow: '0 4px 8px var(--shadow-light)' }}>
-                <h2 style={{ color: 'var(--primary-color)', textAlign: 'center', marginBottom: '30px' }}>Welcome, Student!</h2>
-                <p style={{ textAlign: 'center', color: 'var(--light-text-color)', fontSize: '1.1em', marginBottom: '20px' }}>Explore our vast collection of books.</p>
+        const debounceTimer = setTimeout(() => {
+            fetchSuggestions();
+        }, 300); // Debounce time in ms
 
-                {/* Search Bar */}
-                <div style={{ marginBottom: '30px', textAlign: 'center' }}>
-                    <input
-                        type="text"
-                        placeholder="Search by title, author, ISBN, or description..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        style={{ width: '80%', maxWidth: '500px', padding: '12px', borderRadius: '5px', border: '1px solid var(--border-color)', fontSize: '1em' }}
-                    />
+        return () => clearTimeout(debounceTimer);
+    }, [searchTerm]);
+
+    const handleSearch = async (term) => {
+        if (!term) {
+            setFilteredBooks(books);
+            setExpandedBookId(null);
+            setShowRequestModal(false);
+            return;
+        }
+
+        setCurrentSearchTerm(term);
+        try {
+            const response = await fetch(`${CLOUD_API_URL}/api/books/search?q=${encodeURIComponent(term)}`);
+            if (!response.ok) {
+                throw new Error('Search failed');
+            }
+            const data = await response.json();
+
+            if (data.length > 0) {
+                setFilteredBooks(data);
+                setExpandedBookId('search-active');
+            } else {
+                setFilteredBooks([]);
+                setExpandedBookId(null);
+                setShowRequestModal(true);
+            }
+        } catch (error) {
+            console.error('Search error:', error);
+            setFilteredBooks([]);
+            setShowRequestModal(true);
+        }
+    };
+
+    const handleSearchChange = (event) => {
+        setSearchTerm(event.target.value);
+        setActiveSuggestion(0);
+    };
+
+    const handleKeyDown = (e) => {
+        if (showSuggestions) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setActiveSuggestion((prev) => (prev + 1) % suggestions.length);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setActiveSuggestion((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+            } else if (e.key === 'Enter') {
+                if (suggestions[activeSuggestion]) {
+                    setSearchTerm(suggestions[activeSuggestion].value);
+                    handleSearch(suggestions[activeSuggestion].value);
+                } else {
+                    handleSearch(searchTerm);
+                }
+                setShowSuggestions(false);
+            }
+        } else if (e.key === 'Enter') {
+            handleSearch(searchTerm);
+        }
+    };
+
+    const handleBookRequest = async () => {
+        try {
+            const response = await fetch(`${CLOUD_API_URL}/api/book-requests`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ title: currentSearchTerm }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Request failed');
+            }
+
+            setRequestStatus({
+                show: true,
+                message: `Thank you! Your request for "${currentSearchTerm}" has been submitted.`,
+                isError: false
+            });
+            setShowRequestModal(false);
+
+        } catch (error) {
+            console.error('Book request error:', error);
+            setRequestStatus({
+                show: true,
+                message: 'Failed to submit request. Please try again.',
+                isError: true
+            });
+            setShowRequestModal(false);
+        }
+    };
+
+    // Render the books tab content
+    const renderBooksTab = () => (
+        <div className="tab-content books-tab">
+            {filteredBooks.length > 0 ? (
+                <div className="books-list">
+                    {filteredBooks.map((book) => (
+                        <div
+                            key={book.id}
+                            className={`book-card ${expandedBookId === book.id ? 'expanded' : ''}`}
+                            onClick={() => {
+                                if (expandedBookId === 'search-active') {
+                                    setExpandedBookId(book.id);
+                                } else {
+                                    setExpandedBookId(expandedBookId === book.id ? null : book.id);
+                                }
+                            }}
+                        >
+                            <div className="book-summary">
+                                <h3>{book.title}</h3>
+                            </div>
+                            {/* Additional Details - Only shown when expanded or searching */}
+                            {(expandedBookId === book.id || expandedBookId === 'search-active') && (
+                                <div className="additional-details">
+                                    <p className="author">
+                                        <strong>By:</strong> {book.author || 'N/A'}
+                                    </p>
+                                    <p className="isbn">
+                                        <strong>ISBN:</strong> {book.isbn || 'N/A'}
+                                    </p>
+                                    <p className="published">
+                                        <strong>Published:</strong> {book.published_date ? new Date(book.published_date).toLocaleDateString() : 'N/A'}
+                                    </p>
+                                    {book.shelf_number && (
+                                        <p className="shelf">
+                                            <strong>Shelf:</strong> {book.shelf_number}
+                                        </p>
+                                    )}
+                                    {book.row_position && (
+                                        <p className="row">
+                                            <strong>Row:</strong> {book.row_position}
+                                        </p>
+                                    )}
+                                    {book.description && (
+                                        <div className="description-container">
+                                            <p className="description-text">
+                                                {book.description}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Click indicator */}
+                            {expandedBookId !== 'search-active' && (
+                                <p className="click-indicator">
+                                    {expandedBookId === book.id ? 'Click to collapse ▲' : 'Click for details ▼'}
+                                </p>
+                            )}
+                        </div>
+                    ))}
                 </div>
+            ) : (
+                <div className="no-results-state">No books found matching your search.</div>
+            )}
+        </div>
+    );
 
-                {/* Book List */}
-                <div style={{ backgroundColor: 'var(--card-background)', padding: '25px', borderRadius: '8px', boxShadow: '0 2px 4px var(--shadow-light)' }}>
-                    <h3 style={{ color: 'var(--secondary-color)', textAlign: 'center', marginBottom: '20px' }}>Available Books:</h3>
-                    {filteredBooks.length === 0 ? (
-                        <p style={{ textAlign: 'center', color: 'var(--light-text-color)' }}>No books found matching your search. Try a different term!</p>
-                    ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-                            {filteredBooks.map(book => (
-                                <div key={book.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '15px', backgroundColor: '#fff', boxShadow: '0 1px 3px var(--shadow-light)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                    {/* Image container - now flexible height */}
-                                    <div style={{ 
-                                        width: '100%', 
-                                        maxWidth: '150px', /* Constraint for image width */
-                                        marginBottom: '10px', 
-                                        borderRadius: '4px',
-                                        backgroundColor: '#e0e0e0', /* Placeholder background */
-                                        display: 'flex',
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
-                                        overflow: 'hidden' /* Hide overflow if image is too large */
-                                    }}>
-                                        {book.cover_image_url ? (
-                                            <img
-                                                src={`http://localhost:5000${book.cover_image_url}`} // Prepend backend URL
-                                                alt={`Cover of ${book.title}`}
-                                                style={{ maxWidth: '100%', height: 'auto', display: 'block', borderRadius: '4px' }}
-                                                onError={(e) => { e.target.onerror = null; e.target.src = 'https://via.placeholder.com/150x200?text=No+Image'; }} // Fallback image
-                                            />
-                                        ) : (
-                                            <img
-                                                src="https://via.placeholder.com/150x200?text=No+Image"
-                                                alt="No Cover Available"
-                                                style={{ maxWidth: '100%', height: 'auto', display: 'block', borderRadius: '4px' }}
-                                            />
-                                        )}
-                                    </div>
-                                    
-                                    <h4 style={{ color: 'var(--primary-color)', margin: '0 0 10px 0', textAlign: 'center' }}>{book.title}</h4>
-                                    <p style={{ fontSize: '0.9em', color: 'var(--light-text-color)', textAlign: 'center' }}>By: {book.author}</p>
-                                    <p style={{ fontSize: '0.9em', color: 'var(--light-text-color)', textAlign: 'center' }}>ISBN: {book.isbn}</p>
-                                    <p style={{ fontSize: '0.9em', color: 'var(--light-text-color)', textAlign: 'center' }}>Published: {new Date(book.published_date).toLocaleDateString()}</p>
-                                    {book.shelf_number && <p style={{ fontSize: '0.9em', color: 'var(--light-text-color)', textAlign: 'center' }}>Shelf: {book.shelf_number}</p>}
-                                    {book.row_position && <p style={{ fontSize: '0.9em', color: 'var(--light-text-color)', textAlign: 'center' }}>Row: {book.row_position}</p>}
-                                    {book.description && <p style={{ fontSize: '0.85em', color: 'var(--text-color)', marginTop: '10px', textAlign: 'center' }}>{book.description}</p>}
+    // Render the notes tab content
+    const renderNotesTab = () => (
+        <Notes />
+    );
+
+    // Render the research papers tab content
+    const renderResearchTab = () => (
+        <ResearchPapers />
+    );
+
+    // Render the Q&A tab content
+    const renderQnATab = () => (
+        <QnA />
+    );
+
+    if (loading) {
+        return <div className="loading-state">Loading books...</div>;
+    }
+
+    if (error) {
+        return <div className="error-state">{error}</div>;
+    }
+
+    return (
+        <div className="dashboard-container">
+            <div className="dashboard-header">
+                <h2 className="dashboard-title">Welcome, Student!</h2>
+
+                {/* Dropdown Menu */}
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <button
+                        className="dropdown-button"
+                        onClick={() => setShowDropdown(!showDropdown)}
+                    >
+                        {activeTab === 'books' && 'BOOKS'}
+                        {activeTab === 'notes' && 'NOTES'}
+                        {activeTab === 'research' && 'RESEARCH PAPERS'}
+                        {activeTab === 'qna' && 'Q&A'}
+                        <span style={{ fontSize: '0.8em' }}>▼</span>
+                    </button>
+
+                    {showDropdown && (
+                        <div className="dropdown-menu">
+                            {[
+                                { id: 'books', label: 'BOOKS' },
+                                { id: 'notes', label: 'NOTES' },
+                                { id: 'research', label: 'RESEARCH PAPERS' },
+                                { id: 'qna', label: 'Q&A' }
+                            ].map((item) => (
+                                <div
+                                    key={item.id}
+                                    onClick={() => {
+                                        setActiveTab(item.id);
+                                        setShowDropdown(false);
+                                    }}
+                                    className={`dropdown-item ${activeTab === item.id ? 'active' : ''}`}
+                                >
+                                    {item.label}
                                 </div>
                             ))}
                         </div>
                     )}
                 </div>
             </div>
-        );
-    }
 
-    export default StudentDashboard;
-    
+            <p style={{ textAlign: 'center', color: 'var(--light-text-color)', fontSize: '1.1em', marginBottom: '20px' }}>
+                {activeTab === 'books' && 'Explore our vast collection of books.'}
+                {activeTab === 'notes' && 'Access and manage your study notes.'}
+                {activeTab === 'research' && 'Browse through research papers and publications.'}
+                {activeTab === 'qna' && 'Get answers to your questions from the community.'}
+            </p>
+
+            {/* Search Bar */}
+            <div className="search-container">
+                <input
+                    type="text"
+                    placeholder="Search books..."
+                    value={searchTerm}
+                    onChange={handleSearchChange}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => searchTerm.length > 1 && setShowSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                    className="search-input"
+                />
+                {showSuggestions && suggestions.length > 0 && (
+                    <div className="suggestions-container">
+                        {suggestions.map((suggestion, index) => (
+                            <div
+                                key={suggestion.value}
+                                onClick={async () => {
+                                    setSearchTerm(suggestion.value);
+                                    setShowSuggestions(false);
+                                    // Perform search without tracking
+                                    try {
+                                        const response = await fetch(`${CLOUD_API_URL}/api/books/search?q=${encodeURIComponent(suggestion.value)}`);
+                                        if (!response.ok) {
+                                            throw new Error('Search failed');
+                                        }
+                                        const data = await response.json();
+                                        setFilteredBooks(data);
+                                        setExpandedBookId('search-active');
+                                    } catch (error) {
+                                        console.error('Search error:', error);
+                                        setFilteredBooks([]);
+                                    }
+                                }}
+                                onMouseDown={(e) => e.preventDefault()}
+                                className={`suggestion-item ${index === activeSuggestion ? 'active' : ''}`}
+                            >
+                                <span className="suggestion-icon">
+                                    <svg focusable="false" width="24" height="24" viewBox="0 0 24 24" style={{ verticalAlign: 'middle' }}>
+                                        <path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
+                                    </svg>
+                                </span>
+                                {suggestion.value}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Tab Content */}
+            {activeTab === 'books' && renderBooksTab()}
+            {activeTab === 'notes' && renderNotesTab()}
+            {activeTab === 'research' && renderResearchTab()}
+            {activeTab === 'qna' && renderQnATab()}
+
+            {/* Book Request Modal */}
+            {showRequestModal && (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <h3 style={{ marginTop: 0, color: '#333' }}>Book Not Found</h3>
+                        <p>We couldn't find "{currentSearchTerm}" in our library.</p>
+                        <p>Would you like us to consider adding this book to our collection?</p>
+
+                        <div className="modal-actions">
+                            <button
+                                onClick={() => setShowRequestModal(false)}
+                                className="modal-button modal-button-secondary"
+                            >
+                                No, thanks
+                            </button>
+                            <button
+                                onClick={handleBookRequest}
+                                className="modal-button modal-button-primary"
+                            >
+                                Yes, request this book
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Request Status Notification */}
+            {requestStatus.show && (
+                <div className={`notification ${requestStatus.isError ? 'notification-error' : 'notification-success'}`}>
+                    <span>{requestStatus.message}</span>
+                    <button
+                        onClick={() => setRequestStatus({ ...requestStatus, show: false })}
+                        className="notification-close"
+                    >
+                        &times;
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default StudentDashboard;
