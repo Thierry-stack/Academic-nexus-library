@@ -56,7 +56,7 @@ async function initializeDatabases() {
             database: process.env.DB_NAME,
             port: process.env.DB_PORT,
             ssl: {
-                ca: fs.readFileSync('./certs/ca.pem'),
+                ca: process.env.MYSQL_CA_CERT,
                 rejectUnauthorized: true
             },
             waitForConnections: true,
