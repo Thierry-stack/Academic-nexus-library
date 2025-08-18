@@ -4,7 +4,7 @@ import axios from 'axios';
 import { AuthContext } from '../context/AuthContext';
 
 // Get the backend URL from the environment variables
-const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 // Add global styles for animations
 const styles = document.createElement('style');
