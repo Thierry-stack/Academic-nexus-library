@@ -3,6 +3,9 @@
 import React, { useEffect, useState, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from '../context/AuthContext';
+import Notes from './Notes';
+import ResearchPapers from './ResearchPapers';
+import QnA from './QnA';
 
 // Get the backend URL from the environment variables
 const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
@@ -38,6 +41,10 @@ function StudentDashboard() {
         reason: '',
         additionalNotes: ''
     });
+
+    // Dropdown menu state (added from second file)
+    const [activeTab, setActiveTab] = useState('books');
+    const [showDropdown, setShowDropdown] = useState(false);
 
     // Function to fetch all books
     const fetchBooks = async () => {
@@ -396,6 +403,21 @@ function StudentDashboard() {
         }
     }, [searchTerm, books]);
 
+    // Render the notes tab content
+    const renderNotesTab = () => (
+        <Notes />
+    );
+
+    // Render the research papers tab content
+    const renderResearchTab = () => (
+        <ResearchPapers />
+    );
+
+    // Render the Q&A tab content
+    const renderQnATab = () => (
+        <QnA />
+    );
+
     if (loading) {
         return <div style={{ textAlign: 'center', padding: '20px' }}>Loading books...</div>;
     }
@@ -406,234 +428,313 @@ function StudentDashboard() {
 
     return (
         <div style={{ padding: '20px', maxWidth: '1200px', margin: '20px auto', backgroundColor: 'var(--background-color)', borderRadius: '8px', boxShadow: '0 4px 8px var(--shadow-light)' }}>
-            <h2 style={{ color: 'var(--primary-color)', textAlign: 'center', marginBottom: '30px' }}>Welcome, Student!</h2>
-            <p style={{ textAlign: 'center', color: 'var(--light-text-color)', fontSize: '1.1em', marginBottom: '20px' }}>Explore our vast collection of books.</p>
+            
+            {/* Dashboard Header with Dropdown Menu */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h2 style={{ color: 'var(--primary-color)', margin: 0 }}>Welcome, Student!</h2>
+                
+                {/* Dropdown Menu */}
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <button
+                        style={{
+                            padding: '10px 16px',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '4px',
+                            background: 'white',
+                            cursor: 'pointer',
+                            fontSize: '1em',
+                            fontWeight: 'bold'
+                        }}
+                        onClick={() => setShowDropdown(!showDropdown)}
+                    >
+                        {activeTab === 'books' && 'BOOKS'}
+                        {activeTab === 'notes' && 'NOTES'}
+                        {activeTab === 'research' && 'RESEARCH PAPERS'}
+                        {activeTab === 'qna' && 'Q&A'}
+                        <span style={{ fontSize: '0.8em', marginLeft: '8px' }}>▼</span>
+                    </button>
 
-            {/* Search Bar */}
-            <div style={{ marginBottom: '30px', textAlign: 'center', position: 'relative', display: 'inline-block', width: '80%', maxWidth: '500px' }}>
-                <input
-                    type="text"
-                    placeholder="Search books..."
-                    value={searchTerm}
-                    onChange={handleSearchChange}
-                    onKeyDown={handleKeyDown}
-                    onFocus={() => searchTerm.length > 1 && setShowSuggestions(true)}
-                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                    style={{ width: '100%', padding: '12px', borderRadius: '5px', border: '1px solid var(--border-color)', fontSize: '1em' }}
-                />
-                {showSuggestions && suggestions.length > 0 && (
-                    <div style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: 0,
-                        right: 0,
-                        zIndex: 10,
-                        backgroundColor: 'white',
-                        border: '1px solid #dfe1e5',
-                        borderRadius: '0 0 24px 24px',
-                        boxShadow: '0 4px 6px rgba(32,33,36,.28)',
-                        maxHeight: '300px',
-                        overflowY: 'auto',
-                        textAlign: 'left',
-                        marginTop: '-1px',
-                        padding: '8px 0'
-                    }}>
-                        {suggestions.map((suggestion, index) => (
-                            <div
-                                key={suggestion.value}
-                                onClick={async () => {
-                                    setSearchTerm(suggestion.value);
-                                    setShowSuggestions(false);
-                                    
-                                    // Perform search without tracking
-                                    try {
-                                        const response = await fetch(`${backendUrl}/api/books/search?q=${encodeURIComponent(suggestion.value)}`);
-                                        if (!response.ok) {
-                                            throw new Error('Search failed');
-                                        }
-                                        const data = await response.json();
-                                        setFilteredBooks(data);
-                                        setExpandedBookId('search-active');
-                                    } catch (error) {
-                                        console.error('Search error:', error);
-                                        setFilteredBooks([]);
-                                    }
-                                }}
-                                onMouseDown={(e) => e.preventDefault()}
-                                style={{
-                                    padding: '6px 16px',
-                                    cursor: 'pointer',
-                                    backgroundColor: index === activeSuggestion ? '#f1f3f4' : 'white',
-                                    color: '#212121',
-                                    fontSize: '16px',
-                                    lineHeight: '26px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    transition: 'background-color 0.1s',
-                                    fontFamily: 'Arial, sans-serif',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis'
-                                }}
-                            >
-                                <span style={{ marginRight: '12px', color: '#9aa0a6' }}>
-                                    <svg focusable="false" width="24" height="24" viewBox="0 0 24 24" style={{ verticalAlign: 'middle' }}>
-                                        <path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
-                                    </svg>
-                                </span>
-                                {suggestion.value}
-                            </div>
-                        ))}
-                    </div>
-                )}
+                    {showDropdown && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            right: 0,
+                            zIndex: 1000,
+                            backgroundColor: 'white',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '4px',
+                            boxShadow: '0 4px 8px var(--shadow-light)',
+                            minWidth: '200px'
+                        }}>
+                            {[
+                                { id: 'books', label: 'BOOKS' },
+                                { id: 'notes', label: 'NOTES' },
+                                { id: 'research', label: 'RESEARCH PAPERS' },
+                                { id: 'qna', label: 'Q&A' }
+                            ].map((item) => (
+                                <div
+                                    key={item.id}
+                                    onClick={() => {
+                                        setActiveTab(item.id);
+                                        setShowDropdown(false);
+                                    }}
+                                    style={{
+                                        padding: '12px 16px',
+                                        cursor: 'pointer',
+                                        backgroundColor: activeTab === item.id ? 'var(--primary-color)' : 'white',
+                                        color: activeTab === item.id ? 'white' : 'var(--text-color)',
+                                        transition: 'all 0.2s ease'
+                                    }}
+                                >
+                                    {item.label}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
 
-            {/* Book List */}
-            <div style={{ backgroundColor: 'var(--card-background)', padding: '25px', borderRadius: '8px', boxShadow: '0 2px 4px var(--shadow-light)' }}>
-                <h3 style={{ color: 'var(--secondary-color)', textAlign: 'center', marginBottom: '20px' }}>Available Books:</h3>
-                {filteredBooks.length === 0 ? (
-                    <p style={{ textAlign: 'center', color: 'var(--light-text-color)' }}>No books found matching your search. Try a different term!</p>
-                ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-                        {filteredBooks.map(book => (
-                            <div key={book.id} 
-                                style={{ 
-                                    border: '1px solid var(--border-color)', 
-                                    borderRadius: '8px', 
-                                    padding: '15px', 
-                                    backgroundColor: '#fff', 
-                                    boxShadow: '0 1px 3px var(--shadow-light)', 
-                                    display: 'flex', 
-                                    flexDirection: 'column', 
-                                    alignItems: 'center',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.3s ease',
-                                    ':hover': {
-                                        transform: 'translateY(-5px)',
-                                        boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
-                                    }
-                                }}
-                                onClick={() => toggleBookDetails(book.id)}
-                            >
-                                {/* Book Cover */}
-                                <div style={{ 
-                                    width: '100%', 
-                                    maxWidth: '150px',
-                                    marginBottom: '10px', 
-                                    borderRadius: '4px',
-                                    backgroundColor: '#e0e0e0',
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    overflow: 'hidden'
-                                }}>
-                                    {book.cover_image_url ? (
-                                        <img
-                                            src={book.cover_image_url.startsWith('http') ? book.cover_image_url : `${backendUrl}${book.cover_image_url}`}
-                                            alt={`Cover of ${book.title}`}
-                                            style={{ 
-                                                maxWidth: '100%', 
-                                                height: 'auto', 
-                                                display: 'block', 
-                                                borderRadius: '4px',
-                                                transition: 'transform 0.3s ease'
-                                            }}
-                                            onError={(e) => { 
-                                                e.target.onerror = null; 
-                                                e.target.src = 'https://via.placeholder.com/150x200?text=No+Image'; 
-                                            }}
-                                        />
-                                    ) : (
-                                        <img
-                                            src="https://via.placeholder.com/150x200?text=No+Image"
-                                            alt="No Cover Available"
-                                            style={{ 
-                                                maxWidth: '100%', 
-                                                height: 'auto', 
-                                                display: 'block', 
-                                                borderRadius: '4px' 
-                                            }}
-                                        />
-                                    )}
-                                </div>
-                                
-                                {/* Book Title - Always Visible */}
-                                <h4 style={{ 
-                                    color: 'var(--primary-color)', 
-                                    margin: '0 0 10px 0', 
-                                    textAlign: 'center',
-                                    fontSize: '1em',
-                                    fontWeight: '600'
-                                }}>
-                                    {book.title}
-                                </h4>
+            <p style={{ textAlign: 'center', color: 'var(--light-text-color)', fontSize: '1.1em', marginBottom: '20px' }}>
+                {activeTab === 'books' && 'Explore our vast collection of books.'}
+                {activeTab === 'notes' && 'Access and manage your study notes.'}
+                {activeTab === 'research' && 'Browse through research papers and publications.'}
+                {activeTab === 'qna' && 'Get answers to your questions from the community.'}
+            </p>
 
-                                {/* Additional Details - Only shown when expanded or searching */}
-                                {(expandedBookId === book.id || expandedBookId === 'search-active') && (
-                                    <div style={{ 
-                                        width: '100%',
-                                        marginTop: '10px',
-                                        paddingTop: '10px',
-                                        borderTop: '1px solid #eee',
-                                        animation: 'fadeIn 0.3s ease-in-out'
-                                    }}>
-                                        <p style={{ fontSize: '0.9em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
-                                            <strong>By:</strong> {book.author || 'N/A'}
-                                        </p>
-                                        <p style={{ fontSize: '0.85em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
-                                            <strong>ISBN:</strong> {book.isbn || 'N/A'}
-                                        </p>
-                                        <p style={{ fontSize: '0.85em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
-                                            <strong>Published:</strong> {book.published_date ? new Date(book.published_date).toLocaleDateString() : 'N/A'}
-                                        </p>
-                                        {book.shelf_number && (
-                                            <p style={{ fontSize: '0.85em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
-                                                <strong>Shelf:</strong> {book.shelf_number}
-                                            </p>
-                                        )}
-                                        {book.row_position && (
-                                            <p style={{ fontSize: '0.85em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
-                                                <strong>Row:</strong> {book.row_position}
-                                            </p>
-                                        )}
-                                        {book.description && (
+            {/* Tab Content */}
+            {activeTab === 'books' && (
+                <>
+                    {/* Search Bar */}
+                    <div style={{ marginBottom: '30px', textAlign: 'center', position: 'relative', display: 'inline-block', width: '80%', maxWidth: '500px' }}>
+                        <input
+                            type="text"
+                            placeholder="Search books..."
+                            value={searchTerm}
+                            onChange={handleSearchChange}
+                            onKeyDown={handleKeyDown}
+                            onFocus={() => searchTerm.length > 1 && setShowSuggestions(true)}
+                            onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                            style={{ width: '100%', padding: '12px', borderRadius: '5px', border: '1px solid var(--border-color)', fontSize: '1em' }}
+                        />
+                        {showSuggestions && suggestions.length > 0 && (
+                            <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                right: 0,
+                                zIndex: 10,
+                                backgroundColor: 'white',
+                                border: '1px solid #dfe1e5',
+                                borderRadius: '0 0 24px 24px',
+                                boxShadow: '0 4px 6px rgba(32,33,36,.28)',
+                                maxHeight: '300px',
+                                overflowY: 'auto',
+                                textAlign: 'left',
+                                marginTop: '-1px',
+                                padding: '8px 0'
+                            }}>
+                                {suggestions.map((suggestion, index) => (
+                                    <div
+                                        key={suggestion.value}
+                                        onClick={async () => {
+                                            setSearchTerm(suggestion.value);
+                                            setShowSuggestions(false);
+                                            
+                                            // Perform search without tracking
+                                            try {
+                                                const response = await fetch(`${backendUrl}/api/books/search?q=${encodeURIComponent(suggestion.value)}`);
+                                                if (!response.ok) {
+                                                    throw new Error('Search failed');
+                                                }
+                                                const data = await response.json();
+                                                setFilteredBooks(data);
+                                                setExpandedBookId('search-active');
+                                            } catch (error) {
+                                                console.error('Search error:', error);
+                                                setFilteredBooks([]);
+                                            }
+                                        }}
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        style={{
+                                            padding: '6px 16px',
+                                            cursor: 'pointer',
+                                            backgroundColor: index === activeSuggestion ? '#f1f3f4' : 'white',
+                                            color: '#212121',
+                                            fontSize: '16px',
+                                            lineHeight: '26px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            transition: 'background-color 0.1s',
+                                            fontFamily: 'Arial, sans-serif',
+                                            whiteSpace: 'nowrap',
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis'
+                                        }}
+                                    >
+                                        <span style={{ marginRight: '12px', color: '#9aa0a6' }}>
+                                            <svg focusable="false" width="24" height="24" viewBox="0 0 24 24" style={{ verticalAlign: 'middle' }}>
+                                                <path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
+                                            </svg>
+                                        </span>
+                                        {suggestion.value}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Book List */}
+                    <div style={{ backgroundColor: 'var(--card-background)', padding: '25px', borderRadius: '8px', boxShadow: '0 2px 4px var(--shadow-light)' }}>
+                        <h3 style={{ color: 'var(--secondary-color)', textAlign: 'center', marginBottom: '20px' }}>Available Books:</h3>
+                        {filteredBooks.length === 0 ? (
+                            <p style={{ textAlign: 'center', color: 'var(--light-text-color)' }}>No books found matching your search. Try a different term!</p>
+                        ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                                {filteredBooks.map(book => (
+                                    <div key={book.id} 
+                                        style={{ 
+                                            border: '1px solid var(--border-color)', 
+                                            borderRadius: '8px', 
+                                            padding: '15px', 
+                                            backgroundColor: '#fff', 
+                                            boxShadow: '0 1px 3px var(--shadow-light)', 
+                                            display: 'flex', 
+                                            flexDirection: 'column', 
+                                            alignItems: 'center',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.3s ease',
+                                            ':hover': {
+                                                transform: 'translateY(-5px)',
+                                                boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                                            }
+                                        }}
+                                        onClick={() => toggleBookDetails(book.id)}
+                                    >
+                                        {/* Book Cover */}
+                                        <div style={{ 
+                                            width: '100%', 
+                                            maxWidth: '150px',
+                                            marginBottom: '10px', 
+                                            borderRadius: '4px',
+                                            backgroundColor: '#e0e0e0',
+                                            display: 'flex',
+                                            justifyContent: 'center',
+                                            alignItems: 'center',
+                                            overflow: 'hidden'
+                                        }}>
+                                            {book.cover_image_url ? (
+                                                <img
+                                                    src={book.cover_image_url.startsWith('http') ? book.cover_image_url : `${backendUrl}${book.cover_image_url}`}
+                                                    alt={`Cover of ${book.title}`}
+                                                    style={{ 
+                                                        maxWidth: '100%', 
+                                                        height: 'auto', 
+                                                        display: 'block', 
+                                                        borderRadius: '4px',
+                                                        transition: 'transform 0.3s ease'
+                                                    }}
+                                                    onError={(e) => { 
+                                                        e.target.onerror = null; 
+                                                        e.target.src = 'https://via.placeholder.com/150x200?text=No+Image'; 
+                                                    }}
+                                                />
+                                            ) : (
+                                                <img
+                                                    src="https://via.placeholder.com/150x200?text=No+Image"
+                                                    alt="No Cover Available"
+                                                    style={{ 
+                                                        maxWidth: '100%', 
+                                                        height: 'auto', 
+                                                        display: 'block', 
+                                                        borderRadius: '4px' 
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                        
+                                        {/* Book Title - Always Visible */}
+                                        <h4 style={{ 
+                                            color: 'var(--primary-color)', 
+                                            margin: '0 0 10px 0', 
+                                            textAlign: 'center',
+                                            fontSize: '1em',
+                                            fontWeight: '600'
+                                        }}>
+                                            {book.title}
+                                        </h4>
+
+                                        {/* Additional Details - Only shown when expanded or searching */}
+                                        {(expandedBookId === book.id || expandedBookId === 'search-active') && (
                                             <div style={{ 
+                                                width: '100%',
                                                 marginTop: '10px',
-                                                padding: '8px',
-                                                backgroundColor: '#f8f9fa',
-                                                borderRadius: '4px'
+                                                paddingTop: '10px',
+                                                borderTop: '1px solid #eee',
+                                                animation: 'fadeIn 0.3s ease-in-out'
                                             }}>
-                                                <p style={{ 
-                                                    fontSize: '0.85em', 
-                                                    color: 'var(--text-color)', 
-                                                    textAlign: 'left',
-                                                    margin: 0,
-                                                    lineHeight: '1.5'
-                                                }}>
-                                                    {book.description}
+                                                <p style={{ fontSize: '0.9em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
+                                                    <strong>By:</strong> {book.author || 'N/A'}
                                                 </p>
+                                                <p style={{ fontSize: '0.85em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
+                                                    <strong>ISBN:</strong> {book.isbn || 'N/A'}
+                                                </p>
+                                                <p style={{ fontSize: '0.85em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
+                                                    <strong>Published:</strong> {book.published_date ? new Date(book.published_date).toLocaleDateString() : 'N/A'}
+                                                </p>
+                                                {book.shelf_number && (
+                                                    <p style={{ fontSize: '0.85em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
+                                                        <strong>Shelf:</strong> {book.shelf_number}
+                                                    </p>
+                                                )}
+                                                {book.row_position && (
+                                                    <p style={{ fontSize: '0.85em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
+                                                        <strong>Row:</strong> {book.row_position}
+                                                    </p>
+                                                )}
+                                                {book.description && (
+                                                    <div style={{ 
+                                                        marginTop: '10px',
+                                                        padding: '8px',
+                                                        backgroundColor: '#f8f9fa',
+                                                        borderRadius: '4px'
+                                                    }}>
+                                                        <p style={{ 
+                                                            fontSize: '0.85em', 
+                                                            color: 'var(--text-color)', 
+                                                            textAlign: 'left',
+                                                            margin: 0,
+                                                            lineHeight: '1.5'
+                                                        }}>
+                                                            {book.description}
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
+                                        
+                                        {/* Click indicator */}
+                                        {expandedBookId !== 'search-active' && (
+                                            <p style={{
+                                                fontSize: '0.75em',
+                                                color: 'var(--primary-color)',
+                                                margin: '5px 0 0',
+                                                fontStyle: 'italic',
+                                                opacity: 0.7
+                                            }}>
+                                                {expandedBookId === book.id ? 'Click to collapse ▲' : 'Click for details ▼'}
+                                            </p>
+                                        )}
                                     </div>
-                                )}
-                                
-                                {/* Click indicator */}
-                                {expandedBookId !== 'search-active' && (
-                                    <p style={{
-                                        fontSize: '0.75em',
-                                        color: 'var(--primary-color)',
-                                        margin: '5px 0 0',
-                                        fontStyle: 'italic',
-                                        opacity: 0.7
-                                    }}>
-                                        {expandedBookId === book.id ? 'Click to collapse ▲' : 'Click for details ▼'}
-                                    </p>
-                                )}
+                                ))}
                             </div>
-                        ))}
+                        )}
                     </div>
-                )}
-            </div>
+                </>
+            )}
+
+            {activeTab === 'notes' && renderNotesTab()}
+            {activeTab === 'research' && renderResearchTab()}
+            {activeTab === 'qna' && renderQnATab()}
 
             {/* Book Request Modal */}
             {showRequestModal && (
