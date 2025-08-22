@@ -23,7 +23,7 @@ document.head.appendChild(styles);
 function StudentDashboard() {
     const { token } = useContext(AuthContext);
     const [books, setBooks] = useState([]);
-    const [filteredBooks, setFilteredBooks] = useState([]); // For search results
+    const [filteredBooks, setFilteredBooks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -34,25 +34,15 @@ function StudentDashboard() {
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [currentSearchTerm, setCurrentSearchTerm] = useState('');
     const [requestStatus, setRequestStatus] = useState({ show: false, message: '', isError: false });
-    const [purchaseRequest, setPurchaseRequest] = useState({
-        title: '',
-        author: '',
-        isbn: '',
-        reason: '',
-        additionalNotes: ''
-    });
-
-    // Dropdown menu state (added from second file)
     const [activeTab, setActiveTab] = useState('books');
     const [showDropdown, setShowDropdown] = useState(false);
 
     // Function to fetch all books
     const fetchBooks = async () => {
         try {
-            // This fetches from /api/books (public)
             const response = await axios.get(`${backendUrl}/api/books`);
             setBooks(response.data);
-            setFilteredBooks(response.data); // Initially, all books are filtered
+            setFilteredBooks(response.data);
         } catch (err) {
             setError('Failed to load books. Please try again later.');
             console.error('Error fetching books:', err.response ? err.response.data : err.message);
@@ -71,76 +61,9 @@ function StudentDashboard() {
         setExpandedBookId(expandedBookId === bookId ? null : bookId);
     };
 
-    // Handle purchase request form input changes - used in the purchase request modal form
-    // eslint-disable-next-line no-unused-vars
-    const handlePurchaseRequestChange = (e) => {
-        const { name, value } = e.target;
-        setPurchaseRequest(prev => ({
-            ...prev,
-            [name]: value
-        }));
-    };
-
-    // Submit book purchase request - used in the purchase request modal form
-    // eslint-disable-next-line no-unused-vars
-    const handlePurchaseRequestSubmit = async (e) => {
-        e.preventDefault();
-        
-        try {
-            // Response is used to trigger success state even if we don't use the value
-            const response = await axios.post(
-                `${backendUrl}/api/student/book-requests`,
-                {
-                    ...purchaseRequest,
-                    title: purchaseRequest.title || currentSearchTerm
-                },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    }
-                }
-            );
-
-            setRequestStatus({
-                show: true,
-                message: 'Your book purchase request has been submitted successfully!',
-                isError: false
-            });
-            
-            // Reset form and close modal
-            setPurchaseRequest({
-                title: '',
-                author: '',
-                isbn: '',
-                reason: '',
-                additionalNotes: ''
-            });
-            setShowRequestModal(false);
-            setCurrentSearchTerm('');
-            
-            // Hide success message after 5 seconds
-            setTimeout(() => {
-                setRequestStatus(prev => ({ ...prev, show: false }));
-            }, 5000);
-            
-        } catch (error) {
-            console.error('Error submitting purchase request:', error);
-            setRequestStatus({
-                show: true,
-                message: error.response?.data?.message || 'Failed to submit purchase request',
-                isError: true
-            });
-        }
-    };
-
     // Open purchase request modal with search term
     const openPurchaseRequestModal = (searchTerm) => {
         setCurrentSearchTerm(searchTerm);
-        setPurchaseRequest(prev => ({
-            ...prev,
-            title: searchTerm
-        }));
         setShowRequestModal(true);
     };
 
@@ -158,65 +81,38 @@ function StudentDashboard() {
             });
         } catch (error) {
             console.error('Error tracking search:', error);
-            // Don't fail the UI if tracking fails
         }
     };
 
-    // Handle search input changes - used in the search input's onChange
-    // eslint-disable-next-line no-unused-vars
-    const handleSearchInputChange = (e) => {
-        const query = e.target.value;
-        setSearchTerm(query);
-        
-        if (query.length > 1) {
-            fetchSuggestions(query);
-        } else {
-            setSuggestions([]);
-            setShowSuggestions(false);
-        }
-    };
-
-    // Handle key down events in search input
-    const handleSearchKeyDown = (e) => {
-        if (e.key === 'Enter' && searchTerm.trim()) {
-            handleSearchSubmit(searchTerm, true);
-        }
-    };
-
-    // Handle search submission - can be called from form submit or directly with a value
+    // Handle search submission
     const handleSearchSubmit = async (searchValue = searchTerm, isFormSubmit = false) => {
-        // If called from form submission, prevent default and get the search term from state
         if (searchValue.preventDefault) {
             searchValue.preventDefault();
             searchValue = searchTerm;
-            isFormSubmit = true; // This is an explicit form submission
+            isFormSubmit = true;
         }
         
-        if (!searchValue || searchValue.trim() === '') return;
+        if (!searchValue || searchValue.trim() === '') {
+            setFilteredBooks(books);
+            setExpandedBookId(null);
+            return;
+        }
         
-        // Reset any previous request status
         setRequestStatus({ show: false, message: '', isError: false });
         
         try {
-            // Only track the search if it's a form submission
             if (isFormSubmit) {
                 await trackSearch(searchValue);
             }
             
-            // Perform the search using the correct API endpoint
             const response = await fetch(`${backendUrl}/api/books/search?q=${encodeURIComponent(searchValue)}`);
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                console.error('Search API error:', errorData);
-                throw new Error(errorData.error || 'Search failed');
+                throw new Error('Search failed');
             }
             const data = await response.json();
-            console.log('Search results:', data); // Debug log
             
-            // Update the filtered books with search results
             setFilteredBooks(data);
             
-            // Update suggestions for the dropdown
             const formattedSuggestions = data.map(item => ({
                 id: item.id,
                 title: item.title,
@@ -229,19 +125,14 @@ function StudentDashboard() {
             setSuggestions(formattedSuggestions);
             setShowSuggestions(formattedSuggestions.length > 0);
             
-            // Handle UI state based on search results
             if (data.length === 0 && searchValue.trim() !== '') {
-                // Only show purchase request modal if this was an explicit form submission (Enter key or button click)
                 if (isFormSubmit) {
                     openPurchaseRequestModal(searchValue);
                 }
                 setFilteredBooks([]);
             } else if (searchValue) {
-                // If we have results, update the filtered books and show them
-                setFilteredBooks(data);
                 setExpandedBookId('search-active');
             } else {
-                // If search is cleared, show all books
                 setFilteredBooks(books);
                 setExpandedBookId(null);
             }
@@ -254,7 +145,7 @@ function StudentDashboard() {
         }
     };
 
-    // Fetch search suggestions from backend (without tracking)
+    // Fetch search suggestions from backend
     const fetchSuggestions = async (query) => {
         if (!query || query.length < 2) {
             setSuggestions([]);
@@ -269,7 +160,6 @@ function StudentDashboard() {
             }
             const data = await response.json();
             
-            // Map the API response to the expected format
             const formattedSuggestions = data.map(item => ({
                 id: item.id,
                 title: item.title,
@@ -297,20 +187,18 @@ function StudentDashboard() {
                 setSuggestions([]);
                 setShowSuggestions(false);
             }
-        }, 300); // 300ms debounce time
+        }, 300);
 
         return () => clearTimeout(timer);
     }, [searchTerm]);
 
     // Handle search input change
     const handleSearchChange = (e) => {
-        const value = e.target.value;
-        setSearchTerm(value);
+        setSearchTerm(e.target.value);
     };
     
     // Handle keyboard navigation in suggestions
     const handleKeyDown = (e) => {
-        // User pressed the enter key
         if (e.key === 'Enter') {
             e.preventDefault();
             if (showSuggestions && suggestions.length > 0) {
@@ -318,21 +206,17 @@ function StudentDashboard() {
                 const searchValue = selectedSuggestion.title || selectedSuggestion.value;
                 setSearchTerm(searchValue);
                 setShowSuggestions(false);
-                // Don't track searches when selecting from suggestions
                 handleSearchSubmit(searchValue, false);
             } else {
-                // Only track searches when explicitly submitting with Enter (no suggestions shown)
                 handleSearchSubmit(searchTerm, true);
             }
         }
-        // User pressed the up arrow
         else if (e.key === 'ArrowUp') {
             e.preventDefault();
             if (showSuggestions && activeSuggestion > 0) {
                 setActiveSuggestion(activeSuggestion - 1);
             }
         }
-        // User pressed the down arrow
         else if (e.key === 'ArrowDown') {
             e.preventDefault();
             if (showSuggestions && activeSuggestion < suggestions.length - 1) {
@@ -340,21 +224,24 @@ function StudentDashboard() {
             }
         }
     };
-    
+
     // Handle suggestion click
-    const handleSuggestionClick = (suggestion) => {
+    const handleSuggestionClick = async (suggestion) => {
         const searchValue = suggestion.title || suggestion.value;
         setSearchTerm(searchValue);
         setShowSuggestions(false);
         
-        // If we have a valid book ID in the suggestion, find and display that book
-        if (suggestion.id) {
-            const selectedBook = books.find(book => book.id === suggestion.id) || suggestion;
-            setFilteredBooks([selectedBook]);
-            setExpandedBookId(selectedBook.id);
-        } else {
-            // If no ID, perform a regular search
-            handleSearchSubmit(searchValue, false);
+        try {
+            const response = await fetch(`${backendUrl}/api/books/search?q=${encodeURIComponent(searchValue)}`);
+            if (!response.ok) {
+                throw new Error('Search failed');
+            }
+            const data = await response.json();
+            setFilteredBooks(data);
+            setExpandedBookId('search-active');
+        } catch (error) {
+            console.error('Search error:', error);
+            setFilteredBooks([]);
         }
     };
 
@@ -393,65 +280,50 @@ function StudentDashboard() {
         }
     };
 
-    // Update filtered books when search term or books change
-    useEffect(() => {
-        if (searchTerm) {
-            handleSearchSubmit(searchTerm);
-        } else {
-            setFilteredBooks(books);
-            setExpandedBookId(null);
-        }
-    }, [searchTerm, books]);
-
-    // Render the notes tab content
-    const renderNotesTab = () => (
-        <Notes />
-    );
-
-    // Render the research papers tab content
-    const renderResearchTab = () => (
-        <ResearchPapers />
-    );
-
-    // Render the Q&A tab content
-    const renderQnATab = () => (
-        <QnA />
-    );
+    // Tab rendering functions
+    const renderNotesTab = () => <Notes />;
+    const renderResearchTab = () => <ResearchPapers />;
+    const renderQnATab = () => <QnA />;
 
     if (loading) {
-        return <div style={{ textAlign: 'center', padding: '20px' }}>Loading books...</div>;
+        return <div style={{ textAlign: 'center', padding: '20px', marginTop: '80px' }}>Loading books...</div>;
     }
 
     if (error) {
-        return <div style={{ color: 'red', textAlign: 'center', padding: '20px' }}>{error}</div>;
+        return <div style={{ color: 'red', textAlign: 'center', padding: '20px', marginTop: '80px' }}>{error}</div>;
     }
 
     return (
-        <div style={{ padding: '20px', maxWidth: '1200px', margin: '20px auto', backgroundColor: 'var(--background-color)', borderRadius: '8px', boxShadow: '0 4px 8px var(--shadow-light)' }}>
+        <div style={{ padding: '20px', maxWidth: '1200px', margin: '100px auto 20px auto', backgroundColor: 'var(--background-color)', borderRadius: '8px', boxShadow: '0 4px 8px var(--shadow-light)' }}>
             
             {/* Dashboard Header with Dropdown Menu */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h2 style={{ color: 'var(--primary-color)', margin: 0 }}>Welcome, Student!</h2>
+                <h2 style={{ color: 'var(--primary-color)', margin: 0, fontSize: '1.8em', fontWeight: 'bold' }}>Welcome, Student!</h2>
                 
                 {/* Dropdown Menu */}
                 <div style={{ position: 'relative', display: 'inline-block' }}>
                     <button
                         style={{
-                            padding: '10px 16px',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '4px',
-                            background: 'white',
+                            padding: '12px 20px',
+                            border: 'none',
+                            borderRadius: '6px',
+                            background: '#000000',
+                            color: 'white',
                             cursor: 'pointer',
                             fontSize: '1em',
-                            fontWeight: 'bold'
+                            fontWeight: 'bold',
+                            transition: 'all 0.3s ease',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                         }}
+                        onMouseEnter={(e) => e.target.style.background = '#333333'}
+                        onMouseLeave={(e) => e.target.style.background = '#000000'}
                         onClick={() => setShowDropdown(!showDropdown)}
                     >
                         {activeTab === 'books' && 'BOOKS'}
                         {activeTab === 'notes' && 'NOTES'}
                         {activeTab === 'research' && 'RESEARCH PAPERS'}
                         {activeTab === 'qna' && 'Q&A'}
-                        <span style={{ fontSize: '0.8em', marginLeft: '8px' }}>▼</span>
+                        <span style={{ fontSize: '0.8em', marginLeft: '10px' }}>▼</span>
                     </button>
 
                     {showDropdown && (
@@ -462,9 +334,10 @@ function StudentDashboard() {
                             zIndex: 1000,
                             backgroundColor: 'white',
                             border: '1px solid var(--border-color)',
-                            borderRadius: '4px',
-                            boxShadow: '0 4px 8px var(--shadow-light)',
-                            minWidth: '200px'
+                            borderRadius: '6px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                            minWidth: '220px',
+                            marginTop: '5px'
                         }}>
                             {[
                                 { id: 'books', label: 'BOOKS' },
@@ -479,11 +352,23 @@ function StudentDashboard() {
                                         setShowDropdown(false);
                                     }}
                                     style={{
-                                        padding: '12px 16px',
+                                        padding: '14px 18px',
                                         cursor: 'pointer',
-                                        backgroundColor: activeTab === item.id ? 'var(--primary-color)' : 'white',
-                                        color: activeTab === item.id ? 'white' : 'var(--text-color)',
-                                        transition: 'all 0.2s ease'
+                                        backgroundColor: activeTab === item.id ? '#000000' : 'white',
+                                        color: activeTab === item.id ? 'white' : '#333333',
+                                        transition: 'all 0.2s ease',
+                                        fontWeight: activeTab === item.id ? '600' : '400',
+                                        borderBottom: '1px solid #f0f0f0'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        if (activeTab !== item.id) {
+                                            e.target.style.backgroundColor = '#f8f9fa';
+                                        }
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        if (activeTab !== item.id) {
+                                            e.target.style.backgroundColor = 'white';
+                                        }
                                     }}
                                 >
                                     {item.label}
@@ -494,11 +379,11 @@ function StudentDashboard() {
                 </div>
             </div>
 
-            <p style={{ textAlign: 'center', color: 'var(--light-text-color)', fontSize: '1.1em', marginBottom: '20px' }}>
+            <p style={{ textAlign: 'center', color: 'var(--light-text-color)', fontSize: '1.1em', marginBottom: '30px', marginTop: '10px' }}>
                 {activeTab === 'books' && 'Explore our vast collection of books.'}
                 {activeTab === 'notes' && 'Access and manage your study notes.'}
                 {activeTab === 'research' && 'Browse through research papers and publications.'}
-                {activeTab === 'qna' && 'Get answers to your questions from the community.'}
+                { activeTab === 'qna' && 'Get answers to your questions from the community.'}
             </p>
 
             {/* Tab Content */}
@@ -514,7 +399,7 @@ function StudentDashboard() {
                             onKeyDown={handleKeyDown}
                             onFocus={() => searchTerm.length > 1 && setShowSuggestions(true)}
                             onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                            style={{ width: '100%', padding: '12px', borderRadius: '5px', border: '1px solid var(--border-color)', fontSize: '1em' }}
+                            style={{ width: '100%', padding: '14px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '1em', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
                         />
                         {showSuggestions && suggestions.length > 0 && (
                             <div style={{
@@ -525,7 +410,7 @@ function StudentDashboard() {
                                 zIndex: 10,
                                 backgroundColor: 'white',
                                 border: '1px solid #dfe1e5',
-                                borderRadius: '0 0 24px 24px',
+                                borderRadius: '0 0 8px 8px',
                                 boxShadow: '0 4px 6px rgba(32,33,36,.28)',
                                 maxHeight: '300px',
                                 overflowY: 'auto',
@@ -536,27 +421,10 @@ function StudentDashboard() {
                                 {suggestions.map((suggestion, index) => (
                                     <div
                                         key={suggestion.value}
-                                        onClick={async () => {
-                                            setSearchTerm(suggestion.value);
-                                            setShowSuggestions(false);
-                                            
-                                            // Perform search without tracking
-                                            try {
-                                                const response = await fetch(`${backendUrl}/api/books/search?q=${encodeURIComponent(suggestion.value)}`);
-                                                if (!response.ok) {
-                                                    throw new Error('Search failed');
-                                                }
-                                                const data = await response.json();
-                                                setFilteredBooks(data);
-                                                setExpandedBookId('search-active');
-                                            } catch (error) {
-                                                console.error('Search error:', error);
-                                                setFilteredBooks([]);
-                                            }
-                                        }}
+                                        onClick={() => handleSuggestionClick(suggestion)}
                                         onMouseDown={(e) => e.preventDefault()}
                                         style={{
-                                            padding: '6px 16px',
+                                            padding: '10px 16px',
                                             cursor: 'pointer',
                                             backgroundColor: index === activeSuggestion ? '#f1f3f4' : 'white',
                                             color: '#212121',
@@ -602,13 +470,17 @@ function StudentDashboard() {
                                             flexDirection: 'column', 
                                             alignItems: 'center',
                                             cursor: 'pointer',
-                                            transition: 'all 0.3s ease',
-                                            ':hover': {
-                                                transform: 'translateY(-5px)',
-                                                boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
-                                            }
+                                            transition: 'all 0.3s ease'
                                         }}
                                         onClick={() => toggleBookDetails(book.id)}
+                                        onMouseEnter={(e) => {
+                                            e.target.style.transform = 'translateY(-5px)';
+                                            e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.target.style.transform = 'translateY(0)';
+                                            e.target.style.boxShadow = '0 1px 3px var(--shadow-light)';
+                                        }}
                                     >
                                         {/* Book Cover */}
                                         <div style={{ 
@@ -630,8 +502,7 @@ function StudentDashboard() {
                                                         maxWidth: '100%', 
                                                         height: 'auto', 
                                                         display: 'block', 
-                                                        borderRadius: '4px',
-                                                        transition: 'transform 0.3s ease'
+                                                        borderRadius: '4px'
                                                     }}
                                                     onError={(e) => { 
                                                         e.target.onerror = null; 
@@ -652,7 +523,7 @@ function StudentDashboard() {
                                             )}
                                         </div>
                                         
-                                        {/* Book Title - Always Visible */}
+                                        {/* Book Title */}
                                         <h4 style={{ 
                                             color: 'var(--primary-color)', 
                                             margin: '0 0 10px 0', 
@@ -663,14 +534,13 @@ function StudentDashboard() {
                                             {book.title}
                                         </h4>
 
-                                        {/* Additional Details - Only shown when expanded or searching */}
+                                        {/* Additional Details */}
                                         {(expandedBookId === book.id || expandedBookId === 'search-active') && (
                                             <div style={{ 
                                                 width: '100%',
                                                 marginTop: '10px',
                                                 paddingTop: '10px',
-                                                borderTop: '1px solid #eee',
-                                                animation: 'fadeIn 0.3s ease-in-out'
+                                                borderTop: '1px solid #eee'
                                             }}>
                                                 <p style={{ fontSize: '0.9em', color: 'var(--light-text-color)', textAlign: 'center', margin: '5px 0' }}>
                                                     <strong>By:</strong> {book.author || 'N/A'}
