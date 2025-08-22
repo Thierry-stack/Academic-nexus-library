@@ -1,13 +1,29 @@
 // src/components/StudentDashboard.js
-import React, { useState, useEffect, useContext } from 'react';
+
+import React, { useEffect, useState, useContext } from 'react';
+import axios from 'axios';
 import { AuthContext } from '../context/AuthContext';
 
-const StudentDashboard = () => {
+// Get the backend URL from the environment variables
+const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+// Add global styles for animations
+const styles = document.createElement('style');
+styles.textContent = `
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+`;
+document.head.appendChild(styles);
+
+function StudentDashboard() {
     const { token } = useContext(AuthContext);
     const [books, setBooks] = useState([]);
-    const [filteredBooks, setFilteredBooks] = useState([]);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [filteredBooks, setFilteredBooks] = useState([]); // For search results
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
     const [expandedBookId, setExpandedBookId] = useState(null);
     const [suggestions, setSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -15,176 +31,374 @@ const StudentDashboard = () => {
     const [showRequestModal, setShowRequestModal] = useState(false);
     const [currentSearchTerm, setCurrentSearchTerm] = useState('');
     const [requestStatus, setRequestStatus] = useState({ show: false, message: '', isError: false });
+    const [purchaseRequest, setPurchaseRequest] = useState({
+        title: '',
+        author: '',
+        isbn: '',
+        reason: '',
+        additionalNotes: ''
+    });
 
-    const backendUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    // Function to fetch all books
+    const fetchBooks = async () => {
+        try {
+            // This fetches from /api/books (public)
+            const response = await axios.get(`${backendUrl}/api/books`);
+            setBooks(response.data);
+            setFilteredBooks(response.data); // Initially, all books are filtered
+        } catch (err) {
+            setError('Failed to load books. Please try again later.');
+            console.error('Error fetching books:', err.response ? err.response.data : err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-    // Fetch all books on component mount
+    // Fetch books on component mount
     useEffect(() => {
-        const fetchBooks = async () => {
-            try {
-                const response = await fetch(`${backendUrl}/api/books`);
-                if (!response.ok) {
-                    throw new Error('Failed to fetch books');
-                }
-                const data = await response.json();
-                setBooks(data);
-                setFilteredBooks(data);
-            } catch (err) {
-                setError('Failed to load books. Please try again later.');
-                console.error('Error fetching books:', err);
-            }
-        };
-
         fetchBooks();
     }, []);
 
+    // Toggle book details
+    const toggleBookDetails = (bookId) => {
+        setExpandedBookId(expandedBookId === bookId ? null : bookId);
+    };
+
+    // Handle purchase request form input changes - used in the purchase request modal form
+    // eslint-disable-next-line no-unused-vars
+    const handlePurchaseRequestChange = (e) => {
+        const { name, value } = e.target;
+        setPurchaseRequest(prev => ({
+            ...prev,
+            [name]: value
+        }));
+    };
+
+    // Submit book purchase request - used in the purchase request modal form
+    // eslint-disable-next-line no-unused-vars
+    const handlePurchaseRequestSubmit = async (e) => {
+        e.preventDefault();
+        
+        try {
+            // Response is used to trigger success state even if we don't use the value
+            const response = await axios.post(
+                `${backendUrl}/api/student/book-requests`,
+                {
+                    ...purchaseRequest,
+                    title: purchaseRequest.title || currentSearchTerm
+                },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
+            );
+
+            setRequestStatus({
+                show: true,
+                message: 'Your book purchase request has been submitted successfully!',
+                isError: false
+            });
+            
+            // Reset form and close modal
+            setPurchaseRequest({
+                title: '',
+                author: '',
+                isbn: '',
+                reason: '',
+                additionalNotes: ''
+            });
+            setShowRequestModal(false);
+            setCurrentSearchTerm('');
+            
+            // Hide success message after 5 seconds
+            setTimeout(() => {
+                setRequestStatus(prev => ({ ...prev, show: false }));
+            }, 5000);
+            
+        } catch (error) {
+            console.error('Error submitting purchase request:', error);
+            setRequestStatus({
+                show: true,
+                message: error.response?.data?.message || 'Failed to submit purchase request',
+                isError: true
+            });
+        }
+    };
+
+    // Open purchase request modal with search term
+    const openPurchaseRequestModal = (searchTerm) => {
+        setCurrentSearchTerm(searchTerm);
+        setPurchaseRequest(prev => ({
+            ...prev,
+            title: searchTerm
+        }));
+        setShowRequestModal(true);
+    };
+
+    // Track a search in the backend
+    const trackSearch = async (query) => {
+        if (!query || query.trim() === '') return;
+        
+        try {
+            await fetch(`${backendUrl}/api/search-stats/track-search`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ title: query })
+            });
+        } catch (error) {
+            console.error('Error tracking search:', error);
+            // Don't fail the UI if tracking fails
+        }
+    };
+
+    // Handle search input changes - used in the search input's onChange
+    // eslint-disable-next-line no-unused-vars
+    const handleSearchInputChange = (e) => {
+        const query = e.target.value;
+        setSearchTerm(query);
+        
+        if (query.length > 1) {
+            fetchSuggestions(query);
+        } else {
+            setSuggestions([]);
+            setShowSuggestions(false);
+        }
+    };
+
+    // Handle key down events in search input
+    const handleSearchKeyDown = (e) => {
+        if (e.key === 'Enter' && searchTerm.trim()) {
+            handleSearchSubmit(searchTerm, true);
+        }
+    };
+
+    // Handle search submission - can be called from form submit or directly with a value
+    const handleSearchSubmit = async (searchValue = searchTerm, isFormSubmit = false) => {
+        // If called from form submission, prevent default and get the search term from state
+        if (searchValue.preventDefault) {
+            searchValue.preventDefault();
+            searchValue = searchTerm;
+            isFormSubmit = true; // This is an explicit form submission
+        }
+        
+        if (!searchValue || searchValue.trim() === '') return;
+        
+        // Reset any previous request status
+        setRequestStatus({ show: false, message: '', isError: false });
+        
+        try {
+            // Only track the search if it's a form submission
+            if (isFormSubmit) {
+                await trackSearch(searchValue);
+            }
+            
+            // Perform the search using the correct API endpoint
+            const response = await fetch(`${backendUrl}/api/books/search?q=${encodeURIComponent(searchValue)}`);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Search API error:', errorData);
+                throw new Error(errorData.error || 'Search failed');
+            }
+            const data = await response.json();
+            console.log('Search results:', data); // Debug log
+            
+            // Update the filtered books with search results
+            setFilteredBooks(data);
+            
+            // Update suggestions for the dropdown
+            const formattedSuggestions = data.map(item => ({
+                id: item.id,
+                title: item.title,
+                author: item.author,
+                isbn: item.isbn,
+                cover_image_url: item.cover_image_url,
+                value: item.title
+            }));
+            
+            setSuggestions(formattedSuggestions);
+            setShowSuggestions(formattedSuggestions.length > 0);
+            
+            // Handle UI state based on search results
+            if (data.length === 0 && searchValue.trim() !== '') {
+                // Only show purchase request modal if this was an explicit form submission (Enter key or button click)
+                if (isFormSubmit) {
+                    openPurchaseRequestModal(searchValue);
+                }
+                setFilteredBooks([]);
+            } else if (searchValue) {
+                // If we have results, update the filtered books and show them
+                setFilteredBooks(data);
+                setExpandedBookId('search-active');
+            } else {
+                // If search is cleared, show all books
+                setFilteredBooks(books);
+                setExpandedBookId(null);
+            }
+            
+        } catch (error) {
+            console.error('Search error:', error);
+            setFilteredBooks([]);
+            setSuggestions([]);
+            setShowSuggestions(false);
+        }
+    };
+
+    // Fetch search suggestions from backend (without tracking)
     const fetchSuggestions = async (query) => {
-        if (query.length < 2) {
+        if (!query || query.length < 2) {
             setSuggestions([]);
             setShowSuggestions(false);
             return;
         }
+
         try {
             const response = await fetch(`${backendUrl}/api/books/search?q=${encodeURIComponent(query)}`);
             if (!response.ok) {
                 throw new Error('Failed to fetch suggestions');
             }
             const data = await response.json();
-            const formattedSuggestions = data.map(book => ({
-                id: book.id,
-                value: book.title
+            
+            // Map the API response to the expected format
+            const formattedSuggestions = data.map(item => ({
+                id: item.id,
+                title: item.title,
+                author: item.author,
+                isbn: item.isbn,
+                cover_image_url: item.cover_image_url,
+                value: item.title
             }));
+            
             setSuggestions(formattedSuggestions);
+            setShowSuggestions(formattedSuggestions.length > 0);
         } catch (error) {
             console.error('Error fetching suggestions:', error);
             setSuggestions([]);
+            setShowSuggestions(false);
         }
     };
 
-    // Debounce effect for search suggestions
+    // Handle search input change with debouncing
     useEffect(() => {
-        const delaySearch = setTimeout(() => {
-            if (searchTerm.length > 1) {
+        const timer = setTimeout(() => {
+            if (searchTerm && searchTerm.trim().length >= 2) {
                 fetchSuggestions(searchTerm);
             } else {
                 setSuggestions([]);
                 setShowSuggestions(false);
             }
-        }, 300);
+        }, 300); // 300ms debounce time
 
-        return () => clearTimeout(delaySearch);
+        return () => clearTimeout(timer);
     }, [searchTerm]);
 
+    // Handle search input change
     const handleSearchChange = (e) => {
-        setSearchTerm(e.target.value);
-        setActiveSuggestion(0);
-        setShowSuggestions(true);
+        const value = e.target.value;
+        setSearchTerm(value);
     };
-
-    const handleSearchSubmit = async () => {
-        if (!searchTerm) {
-            setFilteredBooks(books);
-            setExpandedBookId(null);
-            return;
-        }
-
-        setCurrentSearchTerm(searchTerm);
-        setExpandedBookId('search-active');
-
-        try {
-            const trackResponse = await fetch(`${backendUrl}/api/search-stats/track-search`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: searchTerm }),
-            });
-
-            if (!trackResponse.ok) {
-                console.error('Failed to track search.');
-            }
-
-            const searchResponse = await fetch(`${backendUrl}/api/books/search?q=${encodeURIComponent(searchTerm)}`);
-            if (!searchResponse.ok) {
-                throw new Error('Search failed');
-            }
-            const data = await searchResponse.json();
-            setFilteredBooks(data);
-            if (data.length === 0) {
-                setShowRequestModal(true);
-            }
-        } catch (error) {
-            console.error('Search error:', error);
-            setFilteredBooks([]);
-            setShowRequestModal(true);
-        }
-    };
-
+    
+    // Handle keyboard navigation in suggestions
     const handleKeyDown = (e) => {
+        // User pressed the enter key
         if (e.key === 'Enter') {
             e.preventDefault();
             if (showSuggestions && suggestions.length > 0) {
                 const selectedSuggestion = suggestions[activeSuggestion];
-                setSearchTerm(selectedSuggestion.value);
+                const searchValue = selectedSuggestion.title || selectedSuggestion.value;
+                setSearchTerm(searchValue);
                 setShowSuggestions(false);
-                handleSearchSubmit();
+                // Don't track searches when selecting from suggestions
+                handleSearchSubmit(searchValue, false);
             } else {
-                handleSearchSubmit();
-                setShowSuggestions(false);
+                // Only track searches when explicitly submitting with Enter (no suggestions shown)
+                handleSearchSubmit(searchTerm, true);
             }
-        } else if (e.key === 'ArrowDown') {
+        }
+        // User pressed the up arrow
+        else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            if (activeSuggestion < suggestions.length - 1) {
-                setActiveSuggestion(prev => prev + 1);
+            if (showSuggestions && activeSuggestion > 0) {
+                setActiveSuggestion(activeSuggestion - 1);
             }
-        } else if (e.key === 'ArrowUp') {
+        }
+        // User pressed the down arrow
+        else if (e.key === 'ArrowDown') {
             e.preventDefault();
-            if (activeSuggestion > 0) {
-                setActiveSuggestion(prev => prev - 1);
+            if (showSuggestions && activeSuggestion < suggestions.length - 1) {
+                setActiveSuggestion(activeSuggestion + 1);
             }
         }
     };
-
-    const handleBookRequest = async () => {
-        if (!token) {
-            setRequestStatus({ show: true, message: 'You must be logged in to request a book.', isError: true });
-            setShowRequestModal(false);
-            return;
+    
+    // Handle suggestion click
+    const handleSuggestionClick = (suggestion) => {
+        const searchValue = suggestion.title || suggestion.value;
+        setSearchTerm(searchValue);
+        setShowSuggestions(false);
+        
+        // If we have a valid book ID in the suggestion, find and display that book
+        if (suggestion.id) {
+            const selectedBook = books.find(book => book.id === suggestion.id) || suggestion;
+            setFilteredBooks([selectedBook]);
+            setExpandedBookId(selectedBook.id);
+        } else {
+            // If no ID, perform a regular search
+            handleSearchSubmit(searchValue, false);
         }
+    };
 
+    // Handle book request submission
+    const handleBookRequest = async () => {
         try {
             const response = await fetch(`${backendUrl}/api/student/book-requests`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+                    'Authorization': token ? `Bearer ${token}` : ''
                 },
-                body: JSON.stringify({ title: currentSearchTerm }),
+                body: JSON.stringify({
+                    title: currentSearchTerm
+                })
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to submit request.');
+            if (response.ok) {
+                setRequestStatus({
+                    show: true,
+                    message: 'Your request has been submitted. The library will consider purchasing this book.',
+                    isError: false
+                });
+                setShowRequestModal(false);
+                setCurrentSearchTerm('');
+            } else {
+                throw new Error('Failed to submit request');
             }
-
+        } catch (error) {
             setRequestStatus({
                 show: true,
-                message: 'Your request has been submitted successfully!',
-                isError: false
-            });
-            setShowRequestModal(false);
-            setSearchTerm('');
-        } catch (err) {
-            setRequestStatus({
-                show: true,
-                message: err.message || 'Failed to submit your request.',
+                message: 'Failed to submit your request. Please try again later.',
                 isError: true
             });
-            setShowRequestModal(false);
+            console.error('Error submitting book request:', error);
         }
     };
 
-    const toggleBookDetails = (id) => {
-        setExpandedBookId(expandedBookId === id ? null : id);
-    };
+    // Update filtered books when search term or books change
+    useEffect(() => {
+        if (searchTerm) {
+            handleSearchSubmit(searchTerm);
+        } else {
+            setFilteredBooks(books);
+            setExpandedBookId(null);
+        }
+    }, [searchTerm, books]);
+
+    if (loading) {
+        return <div style={{ textAlign: 'center', padding: '20px' }}>Loading books...</div>;
+    }
 
     if (error) {
         return <div style={{ color: 'red', textAlign: 'center', padding: '20px' }}>{error}</div>;
