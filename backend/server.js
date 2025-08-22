@@ -13,9 +13,9 @@ const app = express();
 
 // Set up dynamic CORS for production and development
 const isProduction = process.env.NODE_ENV === 'production';
-const origin = isProduction 
-  ? 'https://academic-nexus-library-frontend.onrender.com'
-  : 'http://localhost:3000';
+const origin = isProduction
+    ? 'https://academic-nexus-library-frontend.onrender.com'
+    : 'http://localhost:3000';
 
 const corsOptions = {
     origin: origin,
@@ -153,14 +153,16 @@ async function startServer() {
 
         const PORT = process.env.PORT || 5000;
         app.listen(PORT, () => {
+            const baseUrl = isProduction ? 'https://your-backend-service-name.onrender.com' : `http://localhost:${PORT}`;
+
             console.log(`\n🚀 Server running on port ${PORT}`);
-            console.log(`🌐 Access it at: http://localhost:${PORT}`);
+            console.log(`🌐 Access it at: ${baseUrl}`);
             console.log('\nAvailable endpoints:');
-            console.log(`- GET   /                - Server status`);
-            console.log(`- GET   /health          - Health check`);
-            console.log(`- GET   /api/books       - Public book search`);
+            console.log(`- GET    /                   - Server status`);
+            console.log(`- GET    /health             - Health check`);
+            console.log(`- GET    /api/books          - Public book search`);
             console.log(`- POST /api/search-stats/track-search - Track a search`);
-            console.log(`- GET   /api/search-stats/most-searched - Get search statistics\n`);
+            console.log(`- GET    /api/search-stats/most-searched - Get search statistics\n`);
         });
 
     } catch (error) {
